@@ -119,9 +119,9 @@ cmd_devices() {
 
 cmd_status() {
   # Minimal JSON for the shell plugin: index/name/color per device.
-  need_openrgb
+  # The Mystic Light hub is reported as index -2 ("direct HID control").
   local first=1 out idx name colors c
-  out="$("$OPENRGB" --list-devices 2>/dev/null)"
+  command -v "$OPENRGB" >/dev/null 2>&1 && out="$("$OPENRGB" --list-devices 2>/dev/null)" || out=""
   flush_dev() {
     [[ -n "${idx:-}" ]] || return 0
     [[ $first -eq 1 ]] && first=0 || printf ','
@@ -140,6 +140,13 @@ cmd_status() {
     fi
   done <<<"$out"
   flush_dev
+  if mystic_available; then
+    local mcolor
+    mcolor="$("$MYSTIC_BIN" channels 2>/dev/null | awk -F'colors=' 'NR==1{print substr($2,1,6)}')"
+    [[ -z "$mcolor" ]] && mcolor="808080"
+    [[ $first -eq 1 ]] && first=0 || printf ','
+    printf '{"index":-2,"name":"Mystic Light (fans/cooler)","colors":["%s"]}' "$mcolor"
+  fi
   printf ']}\n'
 }
 
@@ -163,6 +170,33 @@ autosave_last() {
   cp "$STATE_FILE" "$PROFILE_DIR/last.rgbprofile"
 }
 
+# ---- MSI Mystic Light USB hub (1462:921b), direct HID control -----------
+# Drives case/fan/cooler channels that OpenRGB cannot see yet.
+MYSTIC_BIN="${MYSTIC_BIN:-$HOME/.local/bin/msi-mystic}"
+
+mystic_available() { [[ -x "$MYSTIC_BIN" ]] && "$MYSTIC_BIN" ping >/dev/null 2>&1; }
+
+mystic_mode_name() { # canonical OpenRGB mode -> msi-mystic mode
+  case "$1" in
+    Off) echo off ;;
+    Static) echo static ;;
+    Breathing) echo breathing ;;
+    Flashing) echo flashing ;;
+    "Rainbow"|"Rainbow Wave") echo rainbow ;;
+    *) echo "" ;;  # unknown mode: leave to OpenRGB devices only
+  esac
+}
+
+mystic_apply() { # $1 mode alias, $2 color
+  mystic_available || return 0
+  local m
+  m="$(mystic_mode_name "$(canonical_mode "$1")")"
+  [[ -n "$m" ]] || { echo "→ Mystic Light: mode '$1' not mapped, skipping"; return 0; }
+  echo "→ Mystic Light (fans/cooler): $m ${2:+$2 }"
+  "$MYSTIC_BIN" set all "$m" "${2:-000000}" 2>&1 | sed 's/^/    /' || true
+  journal_set "mystic" "$(canonical_mode "$1")" "${2:-000000}" ""
+}
+
 run_set() {
   need_openrgb
   local dev="${DEV:-all}" args=() d
@@ -170,6 +204,7 @@ run_set() {
   [[ -n "${COLOR:-}" ]] && args+=(--color "$(normalize_color "$COLOR")")
   [[ -n "${SPEED:-}" ]] && args+=(--speed "$SPEED")
   [[ -n "${SIZE:-}" ]] && args+=(--size "$SIZE")
+  [[ "$dev" == "-2" ]] && { mystic_apply "${MODE:-Static}" "${COLOR:-ffffff}"; autosave_last; return 0; }
   local devs=()
   if [[ "$dev" == "all" ]]; then
     local t
@@ -187,6 +222,7 @@ run_set() {
     "$OPENRGB" --device "${d// /}" "${args[@]}" 2>&1 | sed 's/^/    /' || true
     journal_set "${d// /}" "$(canonical_mode "${MODE:-Static}")" "${COLOR:-ffffff}" "${SPEED:-}"
   done
+  [[ "$dev" == "all" ]] && mystic_apply "${MODE:-Static}" "${COLOR:-ffffff}"
   autosave_last
 }
 
@@ -229,6 +265,7 @@ apply_simple() { # $1 mode, $2 color
     MODE="$1" COLOR="$2" DEV="$idx" run_set >/dev/null
     echo "  ✓ $idx: $name"
   done <<<"$t"
+  mystic_apply "$1" "$2"
   autosave_last
 }
 
@@ -283,6 +320,10 @@ apply_profile_file() {
   need_openrgb
   local f="$1" idx mode color speed target
   while read -r idx mode color speed; do
+    if [[ "$idx" == "mystic" ]]; then
+      mystic_apply "$mode" "$color"
+      continue
+    fi
     [[ "$idx" =~ ^([0-9]+|all)$ ]] || continue
     local targets=("$idx")
     if [[ "$idx" == "all" ]]; then
@@ -389,6 +430,10 @@ main() {
     off) cmd_off ;;
     on) cmd_on "$@" ;;
     preset) cmd_preset "$@" ;;
+    mystic)
+      [[ -x "$MYSTIC_BIN" ]] || die "msi-mystic not installed at $MYSTIC_BIN (re-run install.sh)"
+      exec "$MYSTIC_BIN" "$@"
+      ;;
     profile) cmd_profile "$@" ;;
     install-udev) cmd_install_udev ;;
     -h|--help|help) usage ;;

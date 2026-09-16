@@ -2,6 +2,30 @@
 
 Summary of the investigation that shaped this plugin (2026-09).
 
+## Reverse engineering the Mystic Light USB hub (1462:921b)
+
+Since no OpenRGB build detects the `1462:921b` "MYSTIC LIGHT" controller,
+we reverse engineered it directly on a MEG Vision X AI (2026-09-16):
+
+- HID interface with vendor-defined usage page; feature reports per the
+  report descriptor: `0x50` (290 B), `0x51` (727 B), `0x90–0x93` (302 B),
+  `0xB0–0xB3` (761 B), `0xF0` (64 B status).
+- Firmware ping: 65-byte output report `01 B0 CC…` → response `01 5a 02`
+  (firmware 5a.02) — confirms the classic Mystic Light family protocol.
+- **Feature report 0x50 (290 bytes) is the zone table**: 16-byte channel
+  entries at offset 1, up to 6 channels, each:
+  `mode | RGB#1 | RGB#2 | RGB#3 | ff ff ff | 03 15 | led_count`
+  Observed modes: `0x00` off, `0x01` static, `0x02` breathing,
+  `0x03` flashing, `0x0a` rainbow (default, ships with R/G/B triple).
+  Channel LED counts on the reference machine: 23, 18, 11, 8 (4 active
+  channels: cooler/fans), channels 5–6 unpopulated.
+- Writes: read 0x50, patch entry, `hid_send_feature_report` (290 B);
+  the controller applies immediately, read-back confirms.
+- Udev rule `60-msi-mystic-light.rules` grants user access — no root.
+
+Tool: `src/msi-mystic.c` (this repo). Upstream-worthy for OpenRGB as a
+new Mystic Light PID against the 761-byte/X870-era protocol family.
+
 ## How MSI Mystic Light is exposed on Linux
 
 | Path | Devices | Requirements |

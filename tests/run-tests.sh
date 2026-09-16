@@ -6,6 +6,7 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLI="$REPO_DIR/bin/msi-rgb"
 export OPENRGB_BIN="$REPO_DIR/tests/fake-openrgb"
+export MYSTIC_BIN=/bin/false  # keep tests off the real Mystic Light hardware
 
 export XDG_CONFIG_HOME="$(mktemp -d)"
 export XDG_DATA_HOME="$XDG_CONFIG_HOME"
@@ -59,6 +60,14 @@ echo "== boot persistence (auto-saved 'last' profile)"
 : > "$argsfile"
 "$CLI" profile load last >/dev/null
 grep -q -- '--mode Rainbow' "$argsfile" && ok "boot unit can restore last profile" || nok "boot restore ($(cat "$argsfile"))"
+
+echo "== mystic integration (fake msi-mystic)"
+MYSTIC_BIN=/bin/true "$CLI" status | jq -e '(.devices[-1].index == -2) and (.devices[-1].name | contains("Mystic"))' >/dev/null \
+  && ok "status includes Mystic Light hub (index -2)" || nok "status includes mystic hub"
+MYSTIC_BIN="$REPO_DIR/tests/fake-msi-mystic" "$CLI" set -m rainbow-wave -c 00ff00 >/dev/null
+grep -q 'set all rainbow 00ff00' "$XDG_CONFIG_HOME/mystic-args" \
+  && ok "set forwards mapped mode+color to msi-mystic" \
+  || nok "set forwards to msi-mystic ($(cat "$XDG_CONFIG_HOME/mystic-args" 2>/dev/null))"
 
 echo "== profiles"
 "$CLI" profile save test >/dev/null && [[ -f "$XDG_CONFIG_HOME/omarchy-msi-rgb/profiles/test.rgbprofile" ]] \

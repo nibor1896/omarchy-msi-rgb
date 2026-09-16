@@ -13,6 +13,7 @@ BIN_DIR="${HOME}/.local/bin"
 PLUGIN_DIR="${HOME}/.config/omarchy/plugins/${PLUGIN_ID}"
 
 say() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
+err() { printf '\033[1;33m->\033[0m %s\n' "$*" >&2; }
 
 DO_UDEV=0
 BOOT_PROFILE=""
@@ -41,6 +42,25 @@ fi
 say "Installing msi-rgb CLI to ${BIN_DIR}"
 mkdir -p "$BIN_DIR"
 install -m 755 "$REPO_DIR/bin/msi-rgb" "$BIN_DIR/msi-rgb"
+
+# 2b. msi-mystic — direct HID control for the Mystic Light USB hub
+#     (fans/cooler), independent of OpenRGB device support
+if command -v gcc >/dev/null 2>&1 && ls /usr/lib/libhidapi-hidraw.so* >/dev/null 2>&1; then
+  say "Building msi-mystic (direct Mystic Light HID control)…"
+  gcc -O2 -o "$BIN_DIR/msi-mystic" "$REPO_DIR/src/msi-mystic.c" -lhidapi-hidraw \
+    || err "warning: msi-mystic build failed — fans/cooler control unavailable (need gcc + hidapi)"
+  # udev rule so no root is needed to talk to the controller
+  if command -v pkexec >/dev/null 2>&1; then
+    pkexec bash -c 'cat > /etc/udev/rules.d/60-msi-mystic-light.rules <<EOF
+# MSI Mystic Light USB RGB controller (1462:921b) — user access
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1462", ATTRS{idProduct}=="921b", MODE="0666", TAG+="uaccess"
+EOF
+udevadm control --reload-rules; udevadm trigger --action=change /sys/class/hidraw/hidraw*/device 2>/dev/null || true' \
+      || err "warning: could not install udev rule (rerun with sudo)"
+  fi
+else
+  err "note: gcc or hidapi missing — skipped msi-mystic (pacman -S gcc hidapi)"
+fi
 
 # 3. Plugin
 say "Installing shell plugin to ${PLUGIN_DIR}"

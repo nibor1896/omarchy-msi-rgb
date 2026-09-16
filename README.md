@@ -106,6 +106,33 @@ RGB controllers forget their state on power loss. The plugin handles this:
 ./uninstall.sh
 ```
 
+## Direct Mystic Light control (fans / cooler / case lighting)
+
+MSI desktops (e.g. MEG Vision X AI) drive case fans, CPU cooler and LED
+strips through a dedicated **Mystic Light USB controller** (`1462:921b`)
+that OpenRGB does not support yet. This repo ships its own driver:
+
+- `src/msi-mystic.c` talks to the controller directly over HID feature
+  report `0x50` (protocol reverse engineered on a MEG Vision X AI —
+  see [docs/RESEARCH.md](docs/RESEARCH.md))
+- `install.sh` builds it into `~/.local/bin/msi-mystic` and installs a
+  udev rule (`60-msi-mystic-light.rules`) so **no root and no password**
+  is needed to control the lighting
+- `msi-rgb` integrates it: `set`, `off`, `on`, presets, profiles and
+  reboot persistence all drive the Mystic channels too, and `status`
+  lists them as `Mystic Light (fans/cooler)` (device index `-2`)
+- manual per-channel access:
+
+```bash
+msi-rgb mystic ping                 # firmware check
+msi-rgb mystic channels             # channel LED counts + current state
+msi-rgb mystic set 0 static ff0000  # single channel (0-3)
+msi-rgb mystic set all rainbow 000000
+```
+
+Known modes: `off`, `static`, `breathing`, `flashing`, `rainbow` (plus
+raw numeric values for experimentation).
+
 ## Known limitations
 
 - **RTX 5090 GPU RGB** is not yet supported by OpenRGB itself
@@ -113,8 +140,10 @@ RGB controllers forget their state on power loss. The plugin handles this:
   The GPU may appear as `NVIDIA NvAPI I2C on GPU 0` but cannot be controlled
   yet — that is an upstream OpenRGB limitation, not a plugin bug.
 - Very new MSI mainboards (e.g. MEG Vision X AI) may not be whitelisted in
-  the stable OpenRGB release. Install `openrgb-git` (AUR) for the newest
-  device support, and check [openrgb.org/devices.html](https://openrgb.org/devices.html).
+  the stable OpenRGB release — the case/fan/cooler lighting is covered by
+  this repo's own `msi-mystic` driver regardless (see above). For
+  motherboard/RAM zones, install `openrgb-git` (AUR) and check
+  [openrgb.org/devices.html](https://openrgb.org/devices.html).
 - If a controller is missing, run `msi-rgb detect`, then try
   `msi-rgb install-udev` and re-login (i2c group membership).
 - The openrgb CLI applies one primary color per device; per-zone layouts are

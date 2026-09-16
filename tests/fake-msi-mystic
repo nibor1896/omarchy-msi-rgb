@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Fake msi-mystic for unit tests: succeeds on ping, records args.
+ARGS_FILE="${XDG_CONFIG_HOME:-/tmp}/mystic-args"
+printf '%s\n' "$*" >> "$ARGS_FILE"
+exit 0
