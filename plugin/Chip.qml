@@ -25,7 +25,7 @@ Rectangle {
     color: root.fg
     opacity: root.selected ? 1 : 0.85
     font.family: root.fontFamily
-    font.pixelSize: Style.font.small
+    font.pixelSize: Style.font.bodySmall
   }
 
   MouseArea {

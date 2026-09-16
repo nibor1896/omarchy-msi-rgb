@@ -19,9 +19,10 @@ BOOT_PROFILE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --udev) DO_UDEV=1 ;;
+    --no-boot) BOOT_PROFILE="__none__" ;;
     --boot) BOOT_PROFILE="${2:-}"; shift ;;
     --boot=*) BOOT_PROFILE="${1#*=}" ;;
-    *) echo "Unknown option: $1 (supported: --udev, --boot [profile])" >&2; exit 1 ;;
+    *) echo "Unknown option: $1 (supported: --udev, --boot [profile], --no-boot)" >&2; exit 1 ;;
   esac
   shift
 done
@@ -53,8 +54,11 @@ if [[ $DO_UDEV -eq 1 ]]; then
   "$BIN_DIR/msi-rgb" install-udev
 fi
 
-# 5. Boot profile (optional)
-if [[ -n "$BOOT_PROFILE" ]]; then
+# 5. Boot persistence (default on): msi-rgb auto-saves the applied state as
+#    profile "last" after every change; this unit restores it at login so
+#    settings survive reboots/power loss (controllers forget when unpowered).
+if [[ $BOOT_PROFILE != "__none__" ]]; then
+  [[ -z "$BOOT_PROFILE" ]] && BOOT_PROFILE="last"
   say "Installing systemd user unit to restore profile '${BOOT_PROFILE}' at login…"
   mkdir -p "${HOME}/.config/systemd/user"
   sed "s/@PROFILE@/${BOOT_PROFILE}/" \

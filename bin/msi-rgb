@@ -144,6 +144,24 @@ cmd_status() {
 
 escape_json() { local s="$1"; s="${s//\"/\\\"}"; printf '%s' "$s"; }
 
+# Snapshot the applied state after every change so the boot unit can restore
+# it ("survives" reboots — the controllers themselves forget on power loss).
+# The journal is one line per device: "<idx> <mode> <color> <speed>".
+STATE_FILE="$CONFIG_DIR/state"
+
+journal_set() { # $1 idx, $2 mode, $3 color, $4 speed — upsert one line
+  mkdir -p "$CONFIG_DIR"
+  local tmp="$CONFIG_DIR/state.tmp"
+  { grep -v "^$1 " "$STATE_FILE" 2>/dev/null || true; printf '%s %s %s %s\n' "$1" "${2:-Static}" "${3:-ffffff}" "${4:-}"; } > "$tmp"
+  mv "$tmp" "$STATE_FILE"
+}
+
+autosave_last() {
+  [[ -f "$STATE_FILE" ]] || return 0
+  mkdir -p "$PROFILE_DIR"
+  cp "$STATE_FILE" "$PROFILE_DIR/last.rgbprofile"
+}
+
 run_set() {
   need_openrgb
   local dev="${DEV:-all}" args=() d
@@ -151,11 +169,24 @@ run_set() {
   [[ -n "${COLOR:-}" ]] && args+=(--color "$(normalize_color "$COLOR")")
   [[ -n "${SPEED:-}" ]] && args+=(--speed "$SPEED")
   [[ -n "${SIZE:-}" ]] && args+=(--size "$SIZE")
-  IFS=',' read -ra devs <<<"$dev"
+  local devs=()
+  if [[ "$dev" == "all" ]]; then
+    local t
+    t="$(device_table || true)"
+    if [[ -n "$t" ]]; then
+      while IFS=$'\t' read -r d _; do devs+=("$d"); done <<<"$t"
+    else
+      devs=("all")  # no listing available — let openrgb resolve it
+    fi
+  else
+    IFS=',' read -ra devs <<<"$dev"
+  fi
   for d in "${devs[@]}"; do
     echo "→ device ${d// /}: ${MODE:-} ${COLOR:+$COLOR }"
-    "$OPENRGB" --device "${d// /}" "${args[@]}" --no-autodetect 2>&1 | sed 's/^/    /' || true
+    "$OPENRGB" --device "${d// /}" "${args[@]}" 2>&1 | sed 's/^/    /' || true
+    journal_set "${d// /}" "$(canonical_mode "${MODE:-Static}")" "${COLOR:-ffffff}" "${SPEED:-}"
   done
+  autosave_last
 }
 
 cmd_set() {
@@ -197,6 +228,7 @@ apply_simple() { # $1 mode, $2 color
     MODE="$1" COLOR="$2" DEV="$idx" run_set >/dev/null
     echo "  ✓ $idx: $name"
   done <<<"$t"
+  autosave_last
 }
 
 cmd_preset() {
@@ -214,12 +246,6 @@ cmd_preset() {
   esac
 }
 
-current_state_lines() {
-  need_openrgb
-  "$OPENRGB" --list-devices 2>/dev/null \
-    | awk '/^[0-9]+:/{idx=$1} /^  Name:/{n=$0} /^ *(Mode|Color):/{print idx"\t"$0}'
-}
-
 cmd_profile() {
   local sub="${1:-}"; [[ -n "$sub" ]] || die "profile needs a subcommand (save|load|list|delete)"
   shift || true
@@ -231,8 +257,9 @@ cmd_profile() {
   name="${name//\//_}"
   case "$sub" in
     save)
+      [[ -f "$STATE_FILE" ]] || die "Nothing applied yet — no state to save."
       mkdir -p "$PROFILE_DIR"
-      current_state_lines > "$PROFILE_DIR/$name.rgbprofile"
+      cp "$STATE_FILE" "$PROFILE_DIR/$name.rgbprofile"
       echo "Saved profile '$name' ($PROFILE_DIR/$name.rgbprofile)."
       ;;
     load)
@@ -253,16 +280,28 @@ cmd_profile() {
 
 apply_profile_file() {
   need_openrgb
-  local f="$1" idx rest mode color
-  while IFS=$'\t' read -r idx rest; do
-    mode="$(sed -n 's/^ *Mode: *//p' <<<"$rest")"
-    color="$(grep -oE '[0-9A-Fa-f]{2} [0-9A-Fa-f]{2} [0-9A-Fa-f]{2}' <<<"$rest" | head -1 | tr -d ' ' | tr 'A-F' 'a-f')"
-    [[ -z "$color" ]] && color="ffffff"
-    if [[ -n "$mode" ]]; then
-      "$OPENRGB" --device "$idx" --mode "$mode" --color "$color" --no-autodetect >/dev/null 2>&1 \
-        || "$OPENRGB" --device "$idx" --mode "$mode" --no-autodetect >/dev/null 2>&1 || true
+  local f="$1" idx mode color speed target
+  while read -r idx mode color speed; do
+    [[ "$idx" =~ ^([0-9]+|all)$ ]] || continue
+    local targets=("$idx")
+    if [[ "$idx" == "all" ]]; then
+      targets=()
+      local t d
+      t="$(device_table || true)"
+      if [[ -n "$t" ]]; then
+        while IFS=$'\t' read -r d _; do targets+=("$d"); done <<<"$t"
+      else
+        targets=("all")
+      fi
     fi
+    for target in "${targets[@]}"; do
+      echo "→ device $target: $mode ${color:+$color }"
+      "$OPENRGB" --device "$target" --mode "$mode" --color "$color" \
+        ${speed:+--speed "$speed"} 2>&1 | sed 's/^/    /' || true
+    done
+    journal_set "$idx" "$mode" "$color" "$speed"
   done <"$f"
+  autosave_last
 }
 
 cmd_install_udev() {

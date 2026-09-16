@@ -85,6 +85,20 @@ quickshell ipc -p /usr/share/omarchy/shell call io.github.nibor1896.msi-rgb togg
 Available methods: `open`, `close`, `toggle`, `off`, `on`, `setMode`,
 `setColor`, `preset`.
 
+## Reboot persistence
+
+RGB controllers forget their state on power loss. The plugin handles this:
+
+- every change (CLI, widget, IPC, presets) updates a state journal at
+  `~/.config/omarchy-msi-rgb/state` and auto-snapshots it as profile `last`
+- `install.sh` enables a systemd user unit (`msi-rgb-boot.service`) by
+  default that restores `last` at login — so your lighting always comes back
+  after reboot
+- use `--boot <profile>` to restore a different profile instead, or
+  `--no-boot` to opt out
+- widget settings (default mode/color/label) live in
+  `~/.config/omarchy/shell.json` and survive reboots by design
+
 ## Uninstall
 
 ```bash

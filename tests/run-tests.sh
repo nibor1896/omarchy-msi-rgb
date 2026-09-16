@@ -51,6 +51,15 @@ echo "== presets"
 : > "$argsfile"; "$CLI" preset matrix >/dev/null
 grep -q -- '--mode Static --color 00ff41' "$argsfile" && ok "preset matrix applies static green" || nok "preset matrix"
 
+echo "== boot persistence (auto-saved 'last' profile)"
+: > "$argsfile"
+"$CLI" set -m rainbow-wave -c 00ff00 >/dev/null
+[[ -f "$XDG_CONFIG_HOME/omarchy-msi-rgb/profiles/last.rgbprofile" ]] \
+  && ok "change auto-saved to last.rgbprofile" || nok "change auto-saved to last.rgbprofile"
+: > "$argsfile"
+"$CLI" profile load last >/dev/null
+grep -q -- '--mode Rainbow' "$argsfile" && ok "boot unit can restore last profile" || nok "boot restore ($(cat "$argsfile"))"
+
 echo "== profiles"
 "$CLI" profile save test >/dev/null && [[ -f "$XDG_CONFIG_HOME/omarchy-msi-rgb/profiles/test.rgbprofile" ]] \
   && ok "profile saved" || nok "profile saved"

@@ -126,7 +126,7 @@ Panel {
               color: root.fg
               opacity: 0.6
               font.family: root.fontFamily
-              font.pixelSize: Style.font.small
+              font.pixelSize: Style.font.bodySmall
             }
 
             Row {
@@ -166,7 +166,7 @@ Panel {
               color: root.fg
               opacity: 0.6
               font.family: root.fontFamily
-              font.pixelSize: Style.font.small
+              font.pixelSize: Style.font.bodySmall
             }
 
             Grid {
@@ -203,7 +203,7 @@ Panel {
               color: root.fg
               opacity: 0.6
               font.family: root.fontFamily
-              font.pixelSize: Style.font.small
+              font.pixelSize: Style.font.bodySmall
             }
 
             Grid {
@@ -285,7 +285,7 @@ Panel {
               color: root.fg
               opacity: 0.6
               font.family: root.fontFamily
-              font.pixelSize: Style.font.small
+              font.pixelSize: Style.font.bodySmall
             }
 
             Row {
@@ -320,7 +320,7 @@ Panel {
               color: root.fg
               opacity: 0.6
               font.family: root.fontFamily
-              font.pixelSize: Style.font.small
+              font.pixelSize: Style.font.bodySmall
             }
 
             Row {
@@ -369,7 +369,7 @@ Panel {
             color: root.fg
             opacity: 0.5
             font.family: root.fontFamily
-            font.pixelSize: Style.font.small
+            font.pixelSize: Style.font.bodySmall
           }
         }
       }
