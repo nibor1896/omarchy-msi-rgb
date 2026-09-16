@@ -36,6 +36,7 @@ usage() {
 msi-rgb $VERSION — MSI RGB control for Omarchy (via OpenRGB)
 
 Usage:
+  msi-rgb doctor                      Diagnostics + troubleshooting hints
   msi-rgb detect                      List RGB controllers (highlights MSI)
   msi-rgb status                      Machine-readable status (JSON)
   msi-rgb devices                     List device indices, names, modes
@@ -325,10 +326,63 @@ cmd_install_udev() {
   echo "Done. Log out/in (or reboot) for group changes to take effect."
 }
 
+cmd_doctor() {
+  echo "msi-rgb diagnostics"
+  echo "=================="
+  echo
+  echo "1) openrgb binary"
+  if command -v "$OPENRGB" >/dev/null 2>&1; then
+    echo "   ✓ $("$OPENRGB" --version 2>/dev/null | head -1 || echo "$OPENRGB")"
+  else
+    echo "   ✗ openrgb not found — install: omarchy pkg add openrgb (or openrgb-git from AUR)"
+  fi
+  echo
+  echo "2) kernel modules (needed for motherboard/RAM over SMBus)"
+  for m in i2c_dev i2c_i801 i2c_piix4; do
+    if [[ -d "/sys/module/$m" ]]; then echo "   ✓ $m loaded"
+    else echo "   - $m not loaded"; fi
+  done
+  echo
+  echo "3) MSI Mystic Light USB controller"
+  local mystic
+  mystic="$(lsusb 2>/dev/null | grep -i mystic || true)"
+  if [[ -n "$mystic" ]]; then
+    echo "   ✓ present: $mystic"
+    if command -v "$OPENRGB" >/dev/null 2>&1; then
+      n="$("$OPENRGB" --list-devices 2>/dev/null | grep -cE '^[0-9]+:' || true)"
+      echo "   - openrgb reports $n device(s). If the Mystic Light controller is not"
+      echo "     among them, it is not whitelisted upstream yet (see below)."
+    fi
+  else
+    echo "   - no Mystic Light USB controller found (desktop case lighting absent or different)"
+  fi
+  echo
+  echo "4) SMBus"
+  if i2cdetect -l 2>/dev/null | grep -q SMBus; then
+    echo "   ✓ $(i2cdetect -l | grep -m1 SMBus | awk '{print $1, $2, $3, $4}')"
+  else
+    echo "   - no SMBus adapter visible (or i2cdetect needs root)"
+  fi
+  echo
+  echo "Detected devices:"
+  if command -v "$OPENRGB" >/dev/null 2>&1; then
+    "$OPENRGB" --list-devices 2>/dev/null | grep -E '^[0-9]+:|Description:' | sed 's/^/   /' || true
+  fi
+  echo
+  echo "If your MSI controller is missing from the list, the device is not yet"
+  echo "supported by your OpenRGB build. Options:"
+  echo "  a) install openrgb-git (AUR) — newest device support"
+  echo "  b) request support upstream with descriptor dumps:"
+  echo "       https://gitlab.com/CalcProgrammer1/OpenRGB/-/issues"
+  echo "     For USB devices attach: lsusb -v -d 1462:921b (as root)"
+  echo "     For mainboards attach: 'openrgb --vendor MSI --mainboard <model>' output"
+}
+
 main() {
   local cmd="${1:-help}"; [[ $# -gt 0 ]] && shift || true
   case "$cmd" in
     detect) cmd_detect ;;
+    doctor) cmd_doctor ;;
     devices) cmd_devices ;;
     status) cmd_status ;;
     set) cmd_set "$@" ;;

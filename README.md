@@ -71,6 +71,7 @@ msi-rgb preset ocean
 msi-rgb profile save evening          # snapshot current state of all devices
 msi-rgb profile load evening
 msi-rgb status                        # JSON (index/name/colors per device)
+msi-rgb doctor                        # diagnostics + troubleshooting hints
 msi-rgb install-udev                  # udev rules + i2c modules (sudo)
 ```
 
