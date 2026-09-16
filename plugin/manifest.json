@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.nibor1896.msi-rgb",
+  "name": "MSI RGB",
+  "version": "0.1.0",
+  "author": "nibor1896",
+  "description": "Control MSI RGB lighting (Mystic Light) via OpenRGB: modes, colors, presets and profiles from the bar",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "BarWidget.qml" },
+  "barWidget": {
+    "displayName": "MSI RGB",
+    "description": "Control MSI RGB lighting (Mystic Light) via OpenRGB",
+    "category": "Devices",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "defaultMode": "static",
+      "defaultColor": "ff0000",
+      "showLabel": true
+    },
+    "schema": [
+      { "key": "defaultMode", "type": "string", "label": "Default mode (static, breathing, rainbow-wave, ...)" },
+      { "key": "defaultColor", "type": "string", "label": "Default color (RRGGBB hex)" },
+      { "key": "showLabel", "type": "bool", "label": "Show text label next to the dot" }
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Fake openrgb for unit tests. Emits a canned --list-devices listing and
+# records every invocation (one per line) into $XDG_CONFIG_HOME/openrgb-args
+# so tests can assert on the flags msi-rgb passed through.
+ARGS_FILE="${XDG_CONFIG_HOME:-/tmp}/openrgb-args"
+
+if [[ "${1:-}" == "--list-devices" || "${1:-}" == "-l" ]]; then
+  cat <<'EOF'
+0: MSI Mystic Light
+  Type:           Motherboard
+  Description:    Fake MSI Mystic Light controller
+  Modes: Off Static Breathing Rainbow 'Rainbow Wave'
+  Color: FF 00 00, 00 FF 00, 00 00 FF
+
+1: NVIDIA NvAPI I2C on GPU 0
+  Type:           GPU
+  Color: FF 00 00
+
+2: Fake RAM
+  Type:           DRAM
+  Color: AA BB CC
+EOF
+  exit 0
+fi
+
+# record a compact single-line form of the args
+printf '%s\n' "$*" >> "$ARGS_FILE"
+exit 0

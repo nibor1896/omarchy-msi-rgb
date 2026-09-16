@@ -1,0 +1,307 @@
+#!/usr/bin/env bash
+# msi-rgb — Control MSI RGB lighting (Mystic Light) on Omarchy via OpenRGB.
+#
+# Wraps the OpenRGB CLI and provides: device detection, mode/color setting,
+# presets, profiles (save/restore), and machine-readable status output for
+# the Omarchy shell plugin.
+#
+# License: MIT
+
+set -euo pipefail
+
+VERSION="0.1.0"
+OPENRGB="${OPENRGB_BIN:-openrgb}"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-msi-rgb"
+PROFILE_DIR="$CONFIG_DIR/profiles"
+
+# Modes understood by MSI Mystic Light controllers exposed through OpenRGB.
+# Aliases let users type natural words; canonical names are what OpenRGB uses.
+MODE_ALIASES=(
+  "off:Off" "aus:Off" "static:Static" "statisch:Static" "breathing:Breathing"
+  "atmen:Breathing" "blink:Blink" "flashing:Flashing" "pulse:Pulse"
+  "rainbow:Rainbow" "regenbogen:Rainbow" "rainbow-wave:Rainbow Wave"
+  "wave:Rainbow Wave" "color-cycle:Color Cycle" "colorshift:Color Shift"
+  "color-pulse:Color Pulse" "color-blink:Color Blink"
+  "jrainbow:JRainbow" "jchaser:JChaser" "jscope:JScope" "marquee:Marquee"
+  "waterfall:Waterfall" "rainbow-double-flashing:Rainbow Double Flashing"
+  "lightning:Lightning" "random:Random" "fire:Fire" "cpu:CPU Temperature"
+  "gpu:GPU Temperature" "rpm:RPM"
+)
+
+err()  { printf 'msi-rgb: %s\n' "$*" >&2; }
+die()  { err "$*"; exit 1; }
+
+usage() {
+  cat <<EOF
+msi-rgb $VERSION — MSI RGB control for Omarchy (via OpenRGB)
+
+Usage:
+  msi-rgb detect                      List RGB controllers (highlights MSI)
+  msi-rgb status                      Machine-readable status (JSON)
+  msi-rgb devices                     List device indices, names, modes
+  msi-rgb set [options]               Apply a mode/color to devices
+  msi-rgb off                         Turn all lights off
+  msi-rgb on [--color RRGGBB]         Lights on (Static, default FF0000)
+  msi-rgb preset list                 List built-in presets
+  msi-rgb preset <name>               Apply a built-in preset
+  msi-rgb profile save <name>         Save current state of all devices
+  msi-rgb profile load <name>         Restore a saved profile
+  msi-rgb profile list                List saved profiles
+  msi-rgb profile delete <name>       Delete a saved profile
+  msi-rgb install-udev                Install udev rules + load i2c modules
+  msi-rgb help
+
+Set options:
+  -d, --device <ids>    Device indices, comma-separated, or 'all' (default: all)
+  -m, --mode <mode>     Mode (see 'msi-rgb devices'; aliases like 'rainbow' ok)
+  -c, --color <RRGGBB>  Primary color, hex without '#'
+  -c2,--color2 <RRGGBB> Secondary color (modes that use it)
+  -s, --speed <0-255>   Effect speed
+  -z, --size <0-255>    Effect size
+
+Environment:
+  OPENRGB_BIN   Path to openrgb binary (default: openrgb)
+
+Examples:
+  msi-rgb set --mode rainbow-wave
+  msi-rgb set -d 0 -m breathing -c 00ff88 -s 3
+  msi-rgb set -d all -m static -c ffffff && msi-rgb profile save bright
+EOF
+}
+
+canonical_mode() {
+  local input="${1,,}" a
+  for a in "${MODE_ALIASES[@]}"; do
+    [[ "${a%%:*}" == "$input" ]] && { printf '%s' "${a##*:}"; return 0; }
+  done
+  printf '%s' "$1"  # pass through unchanged; OpenRGB rejects unknown modes
+}
+
+need_openrgb() {
+  command -v "$OPENRGB" >/dev/null 2>&1 || "$OPENRGB" -h >/dev/null 2>&1 \
+    || die "openrgb not found. Install with: omarchy pkg add openrgb (or openrgb-git from AUR)."
+}
+
+# device table: index<TAB>name — openrgb prints the name on the index line
+# ("0: MSI Mystic Light"), so keep everything after "N: ".
+device_table() {
+  need_openrgb
+  "$OPENRGB" --list-devices 2>/dev/null \
+    | awk -F': ' '/^[0-9]+: /{print $1"\t"$2}'
+}
+
+normalize_color() {
+  local c="${1#\#}"; c="${c,,}"
+  [[ "$c" =~ ^[0-9a-f]{6}$ ]] || die "Invalid color '$1' — use RRGGBB hex (e.g. ff0000)."
+  printf '%s' "$c"
+}
+
+cmd_detect() {
+  need_openrgb
+  echo "RGB controllers detected by OpenRGB:"
+  echo
+  "$OPENRGB" --list-devices 2>/dev/null | sed 's/^/  /'
+  echo
+  if lsusb 2>/dev/null | grep -qi '1462:.*MYSTIC'; then
+    echo "MSI Mystic Light USB controller present ✓"
+  else
+    echo "Note: no MSI Mystic Light USB controller found in lsusb."
+  fi
+}
+
+cmd_devices() {
+  local t
+  t="$(device_table)"
+  [[ -n "$t" ]] || die "No RGB devices found. Run 'msi-rgb install-udev' and reboot, or check OpenRGB support."
+  printf 'INDEX\tNAME\n%s\n' "$t" | column -t -s $'\t'
+}
+
+cmd_status() {
+  # Minimal JSON for the shell plugin: index/name/color per device.
+  need_openrgb
+  local first=1 out idx name colors c
+  out="$("$OPENRGB" --list-devices 2>/dev/null)"
+  flush_dev() {
+    [[ -n "${idx:-}" ]] || return 0
+    [[ $first -eq 1 ]] && first=0 || printf ','
+    printf '{"index":%s,"name":"%s","colors":["%s"]}' \
+      "$idx" "$(escape_json "$name")" "${colors:-}"
+    idx=""
+  }
+  printf '{"version":"%s","devices":[' "$VERSION"
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^([0-9]+):[[:space:]]*(.*) ]]; then
+      flush_dev
+      idx="${BASH_REMATCH[1]}"; name="${BASH_REMATCH[2]}"; colors=""
+    elif [[ "$line" == *"Color:"* && -z "${colors:-}" ]]; then
+      c="${line#*Color: }"
+      colors="$(printf '%s' "$c" | tr -d ' ' | tr 'A-F' 'a-f' | sed 's/,/","/g')"
+    fi
+  done <<<"$out"
+  flush_dev
+  printf ']}\n'
+}
+
+escape_json() { local s="$1"; s="${s//\"/\\\"}"; printf '%s' "$s"; }
+
+run_set() {
+  need_openrgb
+  local dev="${DEV:-all}" args=() d
+  [[ -n "${MODE:-}" ]] && args+=(--mode "$(canonical_mode "$MODE")")
+  [[ -n "${COLOR:-}" ]] && args+=(--color "$(normalize_color "$COLOR")")
+  [[ -n "${SPEED:-}" ]] && args+=(--speed "$SPEED")
+  [[ -n "${SIZE:-}" ]] && args+=(--size "$SIZE")
+  IFS=',' read -ra devs <<<"$dev"
+  for d in "${devs[@]}"; do
+    echo "→ device ${d// /}: ${MODE:-} ${COLOR:+$COLOR }"
+    "$OPENRGB" --device "${d// /}" "${args[@]}" --no-autodetect 2>&1 | sed 's/^/    /' || true
+  done
+}
+
+cmd_set() {
+  DEV="all" MODE="" COLOR="" SPEED="" SIZE=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -d|--device) DEV="$2"; shift 2 ;;
+      -m|--mode)   MODE="$2"; shift 2 ;;
+      -c|--color)  COLOR="$2"; shift 2 ;;
+      -c2|--color2) err "Note: secondary color is not supported by the openrgb CLI; ignored."; shift 2 ;;
+      -s|--speed)  SPEED="$2"; shift 2 ;;
+      -z|--size)   SIZE="$2"; shift 2 ;;
+      *) die "Unknown option for set: $1 (see 'msi-rgb help')" ;;
+    esac
+  done
+  [[ -n "$MODE$COLOR" ]] || die "set needs --mode and/or --color"
+  run_set
+}
+
+cmd_off() { MODE="Off"; COLOR="000000"; DEV="all"; run_set; }
+cmd_on()  { MODE="Static"; COLOR="${1:-ff0000}"; DEV="all"; run_set; }
+
+built_in_presets() {
+  cat <<'EOF'
+stealth|Off on every device|off
+ambient|Warm white static|static fff2d9
+blood|Red pulse|pulse ff0000
+ocean|Cyan breathing|breathing 00ccff
+pride|Rainbow wave everywhere|rainbow-wave
+fire|Fire mode (if supported)|fire ff6a00
+matrix|Green static, keyboard-friendly|static 00ff41
+EOF
+}
+
+apply_simple() { # $1 mode, $2 color
+  local t d; t="$(device_table || true)"
+  if [[ -z "$t" ]]; then MODE="$1" COLOR="$2" DEV="all"; run_set; return; fi
+  while IFS=$'\t' read -r idx name; do
+    MODE="$1" COLOR="$2" DEV="$idx" run_set >/dev/null
+    echo "  ✓ $idx: $name"
+  done <<<"$t"
+}
+
+cmd_preset() {
+  local sub="${1:-list}"; shift || true
+  case "$sub" in
+    list) built_in_presets | awk -F'|' '{printf "  %-10s %s\n",$1,$2}' ;;
+    *)
+      local line
+      line="$(built_in_presets | grep -F "$(printf '%s|' "$sub")" || true)"
+      [[ -n "$line" ]] || die "Unknown preset '$sub' (see 'msi-rgb preset list')"
+      local m c
+      m="$(cut -d'|' -f3 <<<"$line")"; read -r m c <<<"$m"
+      apply_simple "$m" "$c"
+      ;;
+  esac
+}
+
+current_state_lines() {
+  need_openrgb
+  "$OPENRGB" --list-devices 2>/dev/null \
+    | awk '/^[0-9]+:/{idx=$1} /^  Name:/{n=$0} /^ *(Mode|Color):/{print idx"\t"$0}'
+}
+
+cmd_profile() {
+  local sub="${1:-}"; [[ -n "$sub" ]] || die "profile needs a subcommand (save|load|list|delete)"
+  shift || true
+  if [[ "$sub" != "list" ]]; then
+    local name="${1:-}"
+    [[ -n "$name" ]] || die "profile $sub needs a name"
+  fi
+  local name="${1:-}"
+  name="${name//\//_}"
+  case "$sub" in
+    save)
+      mkdir -p "$PROFILE_DIR"
+      current_state_lines > "$PROFILE_DIR/$name.rgbprofile"
+      echo "Saved profile '$name' ($PROFILE_DIR/$name.rgbprofile)."
+      ;;
+    load)
+      local f="$PROFILE_DIR/$name.rgbprofile"
+      [[ -f "$f" ]] || die "No such profile: $name"
+      echo "Restoring profile '$name'..."
+      apply_profile_file "$f"
+      ;;
+    list)
+      find "$PROFILE_DIR" -maxdepth 1 -name '*.rgbprofile' -printf '%f\n' 2>/dev/null | sed 's/\.rgbprofile$//' || true
+      ;;
+    delete)
+      rm -f "$PROFILE_DIR/$name.rgbprofile" && echo "Deleted '$name'."
+      ;;
+    *) die "Unknown profile subcommand: $sub" ;;
+  esac
+}
+
+apply_profile_file() {
+  need_openrgb
+  local f="$1" idx rest mode color
+  while IFS=$'\t' read -r idx rest; do
+    mode="$(sed -n 's/^ *Mode: *//p' <<<"$rest")"
+    color="$(grep -oE '[0-9A-Fa-f]{2} [0-9A-Fa-f]{2} [0-9A-Fa-f]{2}' <<<"$rest" | head -1 | tr -d ' ' | tr 'A-F' 'a-f')"
+    [[ -z "$color" ]] && color="ffffff"
+    if [[ -n "$mode" ]]; then
+      "$OPENRGB" --device "$idx" --mode "$mode" --color "$color" --no-autodetect >/dev/null 2>&1 \
+        || "$OPENRGB" --device "$idx" --mode "$mode" --no-autodetect >/dev/null 2>&1 || true
+    fi
+  done <"$f"
+}
+
+cmd_install_udev() {
+  echo "This installs udev rules and enables i2c kernel modules (needs sudo)."
+  local rules=/etc/udev/rules.d/60-openrgb.rules
+  sudo -v || die "sudo required"
+  # openrgb package ships 60-openrgb.rules; install if missing
+  if [[ ! -f "$rules" ]]; then
+    local src="/usr/lib/udev/rules.d/60-openrgb.rules"
+    if [[ -f "$src" ]]; then
+      sudo cp "$src" "$rules"
+    else
+      echo 'KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660"' | sudo tee "$rules" >/dev/null
+    fi
+  fi
+  sudo groupadd -f i2c || true
+  sudo usermod -aG i2c "$USER" || true
+  sudo modprobe i2c-dev
+  sudo modprobe i2c-i801 2>/dev/null || sudo modprobe i2c-piix4 2>/dev/null || true
+  echo "i2c-dev"  | sudo tee /etc/modules-load.d/i2c-dev.conf  >/dev/null
+  echo "Done. Log out/in (or reboot) for group changes to take effect."
+}
+
+main() {
+  local cmd="${1:-help}"; [[ $# -gt 0 ]] && shift || true
+  case "$cmd" in
+    detect) cmd_detect ;;
+    devices) cmd_devices ;;
+    status) cmd_status ;;
+    set) cmd_set "$@" ;;
+    off) cmd_off ;;
+    on) cmd_on "$@" ;;
+    preset) cmd_preset "$@" ;;
+    profile) cmd_profile "$@" ;;
+    install-udev) cmd_install_udev ;;
+    -h|--help|help) usage ;;
+    -v|--version) echo "msi-rgb $VERSION" ;;
+    *) die "Unknown command '$cmd' — try 'msi-rgb help'" ;;
+  esac
+}
+
+main "$@"

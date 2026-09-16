@@ -1,0 +1,11 @@
+[Unit]
+Description=Restore MSI RGB profile at login (omarchy-msi-rgb)
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/msi-rgb profile load @PROFILE@
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical-session.target
