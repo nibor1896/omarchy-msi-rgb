@@ -188,6 +188,10 @@ mystic_mode_name() { # canonical OpenRGB mode -> msi-mystic mode
 }
 
 mystic_apply() { # $1 mode alias, $2 color
+  # EXPERIMENTAL: table writes are accepted and persisted, but the live
+  # apply semantics are not fully reverse engineered yet — enable with
+  # MYSTIC_AUTO=1 once verified for your controller.
+  [[ "${MYSTIC_AUTO:-0}" == "1" ]] || return 0
   mystic_available || return 0
   local m
   m="$(mystic_mode_name "$(canonical_mode "$1")")"
