@@ -4,9 +4,10 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// MSI RGB popup: device selector, mode grid, color swatches + hex field,
-// speed slider, on/off, presets and profiles — each action just shells out
-// to `msi-rgb`, the single source of truth for what the hardware supports.
+// MSI RGB popup, built from the Omarchy panel kit: PanelSectionHeader +
+// PanelSeparator rhythm, kit Button/Dropdown/TextField controls. Every
+// action shells out to `msi-rgb`, the single source of truth for what the
+// hardware supports.
 Panel {
   id: root
   moduleName: "io.github.nibor1896.msi-rgb"
@@ -30,9 +31,8 @@ Panel {
   ]
 
   readonly property var swatches: [
-    "ff0000", "ff7f00", "ffee00", "00ff2a", "00ffcc",
-    "00aaff", "2b4dff", "8b00ff", "ff00aa", "ffffff",
-    "fff2d9", "101014"
+    "ff0000", "ff7f00", "ffee00", "00ff2a", "00ffcc", "00aaff",
+    "2b4dff", "8b00ff", "ff00aa", "ffffff", "fff2d9", "101014"
   ]
 
   readonly property var presets: [
@@ -75,8 +75,8 @@ Panel {
     open: root.opened
     centerOnBar: true
     focusTarget: keyCatcher
-    contentWidth: Style.space(340)
-    contentHeight: Style.space(430)
+    contentWidth: Style.space(320)
+    contentHeight: Style.space(470)
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -91,16 +91,16 @@ Panel {
 
         Column {
           id: content
-          x: Style.space(12)
-          width: parent.width - Style.space(24)
-          spacing: Style.space(10)
+          x: Style.space(16)
+          width: parent.width - Style.space(32)
+          spacing: Style.space(8)
 
           // ---- Header
           Text {
             text: "MSI RGB"
             color: root.fg
             font.family: root.fontFamily
-            font.pixelSize: Style.font.body * 1.2
+            font.pixelSize: 14
             font.weight: Font.DemiBold
           }
 
@@ -112,61 +112,57 @@ Panel {
             color: root.fg
             opacity: 0.7
             font.family: root.fontFamily
-            font.pixelSize: Style.font.body
+            font.pixelSize: 12
           }
 
           // ---- Devices
           Column {
             visible: !rgb.noDevices
             width: parent.width
-            spacing: Style.space(4)
+            spacing: Style.space(6)
 
-            Text {
-              text: "Devices"
-              color: root.fg
-              opacity: 0.6
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+            PanelSectionHeader {
+              width: parent.width
+              foreground: root.fg
+              fontFamily: root.fontFamily
+              text: "DEVICE"
             }
 
-            Row {
-              spacing: Style.space(6)
-
-              DevChip {
-                label: "All"
-                selected: root.selectedDevice === -1
-                fg: root.fg
-                fontFamily: root.fontFamily
-                onClicked: root.selectedDevice = -1
+            Dropdown {
+              width: parent.width
+              foreground: root.fg
+              fontFamily: root.fontFamily
+              value: root.selectedDevice < 0 ? "all" : String(root.selectedDevice)
+              options: {
+                var opts = [{ value: "all", label: "All devices" }]
+                var devices = rgb.state && rgb.state.devices ? rgb.state.devices : []
+                for (var i = 0; i < devices.length; i++)
+                  opts.push({ value: String(devices[i].index), label: devices[i].index + ". " + devices[i].name })
+                return opts
               }
-
-              Repeater {
-                model: rgb.state && rgb.state.devices ? rgb.state.devices : []
-
-                DevChip {
-                  required property var modelData
-                  label: (modelData.index + 1) + ". " + (String(modelData.name).length > 14 ? String(modelData.name).substring(0, 13) + "…" : modelData.name)
-                  selected: root.selectedDevice === modelData.index
-                  fg: root.fg
-                  fontFamily: root.fontFamily
-                  onClicked: root.selectedDevice = modelData.index
-                }
+              onChanged: function(value) {
+                root.selectedDevice = value === "all" ? -1 : parseInt(value)
               }
             }
           }
 
-          // ---- Modes
+          PanelSeparator {
+            visible: !rgb.noDevices
+            width: parent.width
+            foreground: root.fg
+          }
+
+          // ---- Mode
           Column {
             visible: !rgb.noDevices
             width: parent.width
-            spacing: Style.space(4)
+            spacing: Style.space(6)
 
-            Text {
-              text: "Mode"
-              color: root.fg
-              opacity: 0.6
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+            PanelSectionHeader {
+              width: parent.width
+              foreground: root.fg
+              fontFamily: root.fontFamily
+              text: "MODE"
             }
 
             Grid {
@@ -177,12 +173,15 @@ Panel {
               Repeater {
                 model: root.modes
 
-                ModeChip {
+                Button {
                   required property string modelData
-                  label: modelData
+                  width: (parent.width - Style.space(12)) / 3
+                  text: modelData
                   selected: root.mode === modelData
-                  fg: root.fg
+                  foreground: root.fg
                   fontFamily: root.fontFamily
+                  fontSize: 11
+                  leftAlign: true
                   onClicked: {
                     root.mode = modelData
                     root.apply()
@@ -198,12 +197,11 @@ Panel {
             width: parent.width
             spacing: Style.space(6)
 
-            Text {
-              text: "Color"
-              color: root.fg
-              opacity: 0.6
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+            PanelSectionHeader {
+              width: parent.width
+              foreground: root.fg
+              fontFamily: root.fontFamily
+              text: "COLOR"
             }
 
             Grid {
@@ -216,8 +214,8 @@ Panel {
 
                 Rectangle {
                   required property string modelData
-                  width: Style.space(30)
-                  height: Style.space(30)
+                  width: Style.space(28)
+                  height: Style.space(28)
                   radius: Style.space(8)
                   color: "#" + modelData
                   border.width: root.color === modelData ? 2 : 1
@@ -225,6 +223,7 @@ Panel {
 
                   MouseArea {
                     anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
                     onClicked: {
                       root.color = modelData
                       root.apply()
@@ -238,36 +237,25 @@ Panel {
               spacing: Style.space(8)
 
               Rectangle {
-                width: Style.space(30)
-                height: Style.space(30)
+                width: Style.space(28)
+                height: Style.space(28)
                 radius: Style.space(8)
                 color: "#" + root.color
                 border.width: 1
                 border.color: Qt.rgba(0, 0, 0, 0.3)
               }
 
-              Rectangle {
-                width: hexInput.implicitWidth + Style.space(20)
-                height: Style.space(34)
-                radius: Style.space(8)
-                color: Qt.rgba(0, 0, 0, 0.25)
-                border.width: 1
-                border.color: hexInput.activeFocus ? root.fg : Qt.rgba(1, 1, 1, 0.15)
-
-                TextInput {
-                  id: hexInput
-                  anchors.centerIn: parent
-                  width: Style.space(140)
-                  color: root.fg
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  text: root.color
-                  validator: RegularExpressionValidator { regularExpression: /[0-9A-Fa-f]{0,6}/ }
-                  onAccepted: {
-                    if (text.length === 6) {
-                      root.color = text.toLowerCase()
-                      root.apply()
-                    }
+              TextField {
+                width: Style.space(150)
+                foreground: root.fg
+                text: root.color
+                font.family: root.fontFamily
+                font.pixelSize: 12
+                validator: RegularExpressionValidator { regularExpression: /[0-9A-Fa-f]{0,6}/ }
+                onAccepted: {
+                  if (text.length === 6) {
+                    root.color = text.toLowerCase()
+                    root.apply()
                   }
                 }
               }
@@ -278,14 +266,13 @@ Panel {
           Column {
             visible: !rgb.noDevices && root.mode !== "off" && root.mode !== "static"
             width: parent.width
-            spacing: Style.space(4)
+            spacing: Style.space(6)
 
-            Text {
-              text: "Speed: " + root.speed
-              color: root.fg
-              opacity: 0.6
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+            PanelSectionHeader {
+              width: parent.width
+              foreground: root.fg
+              fontFamily: root.fontFamily
+              text: "SPEED"
             }
 
             Row {
@@ -294,12 +281,13 @@ Panel {
               Repeater {
                 model: [0, 1, 2, 3, 4]
 
-                ModeChip {
+                Button {
                   required property var modelData
-                  label: String(modelData)
+                  text: String(modelData)
                   selected: root.speed === modelData
-                  fg: root.fg
+                  foreground: root.fg
                   fontFamily: root.fontFamily
+                  fontSize: 11
                   onClicked: {
                     root.speed = modelData
                     root.apply()
@@ -309,32 +297,41 @@ Panel {
             }
           }
 
+          PanelSeparator {
+            visible: !rgb.noDevices
+            width: parent.width
+            foreground: root.fg
+          }
+
           // ---- Presets
           Column {
             visible: !rgb.noDevices
             width: parent.width
-            spacing: Style.space(4)
+            spacing: Style.space(6)
 
-            Text {
-              text: "Presets"
-              color: root.fg
-              opacity: 0.6
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+            PanelSectionHeader {
+              width: parent.width
+              foreground: root.fg
+              fontFamily: root.fontFamily
+              text: "PRESETS"
             }
 
-            Row {
+            Grid {
+              width: parent.width
+              columns: 4
               spacing: Style.space(6)
 
               Repeater {
                 model: root.presets
 
-                ModeChip {
+                Button {
                   required property string modelData
-                  label: modelData
-                  selected: false
-                  fg: root.fg
+                  width: (parent.width - Style.space(18)) / 4
+                  text: modelData
+                  foreground: root.fg
                   fontFamily: root.fontFamily
+                  fontSize: 11
+                  leftAlign: true
                   onClicked: rgb.run(["preset", modelData])
                 }
               }
@@ -346,30 +343,21 @@ Panel {
             visible: !rgb.noDevices
             spacing: Style.space(8)
 
-            ModeChip {
-              label: "Lights off"
-              selected: false
-              fg: root.fg
+            Button {
+              text: "Lights off"
+              foreground: root.fg
               fontFamily: root.fontFamily
+              fontSize: 11
               onClicked: rgb.run(["off"])
             }
 
-            ModeChip {
-              label: "Lights on"
-              selected: false
-              fg: root.fg
+            Button {
+              text: "Lights on"
+              foreground: root.fg
               fontFamily: root.fontFamily
+              fontSize: 11
               onClicked: rgb.run(["on", root.color])
             }
-          }
-
-          Text {
-            visible: rgb.busy
-            text: "…"
-            color: root.fg
-            opacity: 0.5
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
           }
         }
       }

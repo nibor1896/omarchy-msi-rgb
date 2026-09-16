@@ -69,9 +69,9 @@ BarWidget {
     function toggle(): void { root.togglePanel() }
     function off(): void { rgb.run(["off"]) }
     function on(): void { rgb.run(["on"]) }
-    function setMode(mode): void { rgb.run(["set", "--mode", String(mode)]) }
-    function setColor(color): void { rgb.run(["set", "--mode", "static", "--color", String(color)]) }
-    function preset(name): void { rgb.run(["preset", String(name)]) }
+    function setMode(mode: string): void { rgb.run(["set", "--mode", mode]) }
+    function setColor(color: string): void { rgb.run(["set", "--mode", "static", "--color", color]) }
+    function preset(name: string): void { rgb.run(["preset", name]) }
   }
 
   WidgetButton {
