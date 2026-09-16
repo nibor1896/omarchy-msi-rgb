@@ -44,11 +44,11 @@ Panel {
 
   function open() {
     rgb.refresh()
-    panel.open = true
+    controller.show()
   }
 
   function close() {
-    panel.open = false
+    controller.hide()
   }
 
   function toggle() {
