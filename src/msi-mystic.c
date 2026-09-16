@@ -61,6 +61,28 @@ static int channel_present(const unsigned char buf[REPORT_LEN], int ch) {
   return buf[1 + ch * ENTRY_SIZE + 15] > 0;
 }
 
+// Live control requires a mode TRANSITION: writing the table alone does
+// nothing while an effect is running. Verified on hardware: switching to
+// direct mode (0x25) first, then to the target mode applies it live.
+// static/off are hardware-verified; other modes follow the classic enum.
+static void apply_table(unsigned char buf[REPORT_LEN]) {
+  unsigned char tmp[REPORT_LEN];
+  memcpy(tmp, buf, REPORT_LEN);
+  for (int k = 0; k < 18; k++) tmp[1 + k * ENTRY_SIZE] = 0x25;
+  hid_send_feature_report(dev, tmp, REPORT_LEN);
+  usleep(100000);
+  hid_send_feature_report(dev, buf, REPORT_LEN);
+}
+
+static void set_channels_mode(unsigned char buf[REPORT_LEN], int mode, long color) {
+  for (int ch = 0; ch < MAX_CHANNELS; ch++) {
+    unsigned char *e = buf + 1 + ch * ENTRY_SIZE;
+    e[0] = mode;
+    e[1] = (color >> 16) & 0xff; e[2] = (color >> 8) & 0xff; e[3] = color & 0xff;
+    memset(e + 4, 0, 6);
+  }
+}
+
 static void print_channels(const unsigned char buf[REPORT_LEN]) {
   for (int ch = 0; ch < MAX_CHANNELS; ch++) {
     const unsigned char *e = buf + 1 + ch * ENTRY_SIZE;
@@ -129,9 +151,10 @@ int main(int argc, char **argv) {
       } else {
         unsigned r = (color >> 16) & 0xff, g = (color >> 8) & 0xff, b = color & 0xff;
         int touched = 0;
+        int all = !strcmp(argv[i + 1], "all");
         for (int ch = 0; ch < MAX_CHANNELS; ch++) {
           if (!channel_present(buf, ch)) continue;
-          if (strcmp(argv[i + 1], "all") && atoi(argv[i + 1]) != ch) continue;
+          if (!all && atoi(argv[i + 1]) != ch) continue;
           unsigned char *e = buf + 1 + ch * ENTRY_SIZE;
           e[0] = mode;
           e[1] = r; e[2] = g; e[3] = b;
@@ -139,9 +162,17 @@ int main(int argc, char **argv) {
           e[7] = 0; e[8] = 0; e[9] = 0;
           touched++;
         }
+        if (all) {
+          // trailing master entry (offset 272) drives the sync default —
+          // patching it is required for live application of "all"
+          unsigned char *m = buf + 272;
+          m[0] = mode;
+          m[1] = r; m[2] = g; m[3] = b;
+          memset(m + 4, 0, 6);
+        }
         if (!touched) { fprintf(stderr, "no such channel\n"); rc = 1; }
         else {
-          write_table(buf);
+          apply_table(buf);
           usleep(50000);
           unsigned char chk[REPORT_LEN];
           read_table(chk);

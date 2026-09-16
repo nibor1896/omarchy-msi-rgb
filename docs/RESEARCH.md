@@ -20,8 +20,22 @@ we reverse engineered it directly on a MEG Vision X AI (2026-09-16):
   Channel LED counts on the reference machine: 23, 18, 11, 8 (4 active
   channels: cooler/fans), channels 5–6 unpopulated.
 - Writes: read 0x50, patch entry, `hid_send_feature_report` (290 B);
-  the controller applies immediately, read-back confirms.
+  the controller **accepts and persists** writes (readback confirms), but
+  changes are **not applied to the running lighting deterministically**.
+  One manual sequence (per-LED buffers + mode 0x25 + mode 0x01) produced a
+  visible switch to static color once, but could not be reproduced — the
+  apply semantics depend on state we have not identified yet. Verified
+  reliable operations: firmware ping, full table read, table write with
+  readback, turning effects off via mode 0x25 (direct mode with empty
+  buffers → lights off).
+- Reports 0x90–0x93 (302 B) hold per-channel enable/brightness data; zeroing
+  them turns individual fans dark, restoring the factory dump turns them
+  back on. Do not write these.
 - Udev rule `60-msi-mystic-light.rules` grants user access — no root.
+
+**To finish the RE** (see GitHub issue "RE: live-apply semantics"): capture
+MSI Center traffic on Windows with USBPcap for one static-color change and
+diff it against our write sequence.
 
 Tool: `src/msi-mystic.c` (this repo). Upstream-worthy for OpenRGB as a
 new Mystic Light PID against the 761-byte/X870-era protocol family.

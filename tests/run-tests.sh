@@ -64,7 +64,7 @@ grep -q -- '--mode Rainbow' "$argsfile" && ok "boot unit can restore last profil
 echo "== mystic integration (fake msi-mystic)"
 MYSTIC_BIN=/bin/true "$CLI" status | jq -e '(.devices[-1].index == -2) and (.devices[-1].name | contains("Mystic"))' >/dev/null \
   && ok "status includes Mystic Light hub (index -2)" || nok "status includes mystic hub"
-MYSTIC_BIN="$REPO_DIR/tests/fake-msi-mystic" "$CLI" set -m rainbow-wave -c 00ff00 >/dev/null
+MYSTIC_BIN="$REPO_DIR/tests/fake-msi-mystic" MYSTIC_AUTO=1 "$CLI" set -m rainbow-wave -c 00ff00 >/dev/null
 grep -q 'set all rainbow 00ff00' "$XDG_CONFIG_HOME/mystic-args" \
   && ok "set forwards mapped mode+color to msi-mystic" \
   || nok "set forwards to msi-mystic ($(cat "$XDG_CONFIG_HOME/mystic-args" 2>/dev/null))"

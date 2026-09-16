@@ -130,8 +130,11 @@ msi-rgb mystic set 0 static ff0000  # single channel (0-3)
 msi-rgb mystic set all rainbow 000000
 ```
 
-Known modes: `off`, `static`, `breathing`, `flashing`, `rainbow` (plus
-raw numeric values for experimentation).
+> **Status: experimental.** Reads (`ping`, `channels`) and turning all
+> lighting off are hardware-verified. Applying static colors worked once
+> but is not yet deterministic — the live-apply semantics still need a
+> USBPcap capture from MSI Center (see GitHub issue tracker). Auto-apply
+> inside `msi-rgb set/off/presets` is opt-in via `MYSTIC_AUTO=1`.
 
 ## Known limitations
 
