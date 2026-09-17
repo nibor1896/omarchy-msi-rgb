@@ -21,16 +21,21 @@ we reverse engineered it directly on a MEG Vision X AI (2026-09-16):
   channels: cooler/fans), channels 5–6 unpopulated.
 - Writes: read 0x50, patch entry, `hid_send_feature_report` (290 B);
   the controller **accepts and persists** writes (readback confirms), but
-  changes are **not applied to the running lighting deterministically**.
-  One manual sequence (per-LED buffers + mode 0x25 + mode 0x01) produced a
-  visible switch to static color once, but could not be reproduced — the
-  apply semantics depend on state we have not identified yet. Verified
-  reliable operations: firmware ping, full table read, table write with
-  readback, turning effects off via mode 0x25 (direct mode with empty
-  buffers → lights off).
+  changes are **not applied to the running lighting** by the 0x50 write
+  alone.
+- **The apply mechanism (solved 2026-09-18 from an MSI Center USBPcap
+  capture, docs/mystic.pcapng):** MSI Center sends every 0x50 table write
+  immediately followed by **feature report 0x21 (298 bytes)**:
+  `21 09 50 03 00 00 22 01` + a copy of the 290-byte table
+  (0x0122 = 290 = embedded length). The 0x21 report is what triggers live
+  application. Implemented in `msi-mystic` as `apply_table()`;
+  reference packet saved at `assets/mystic-apply-0x21.bin`.
+- MSI Center also writes marker byte `03 95` (factory state has `03 15`)
+  — the read-modify-write in `msi-mystic` preserves whatever marker is
+  present.
 - Reports 0x90–0x93 (302 B) hold per-channel enable/brightness data; zeroing
   them turns individual fans dark, restoring the factory dump turns them
-  back on. Do not write these.
+  back on. `msi-mystic` never writes these.
 - Udev rule `60-msi-mystic-light.rules` grants user access — no root.
 
 **To finish the RE** (see GitHub issue "RE: live-apply semantics"): capture

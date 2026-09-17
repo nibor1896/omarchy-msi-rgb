@@ -53,36 +53,29 @@ static int read_table(unsigned char buf[REPORT_LEN]) {
   return hid_get_feature_report(dev, buf, REPORT_LEN);
 }
 
-static int write_table(unsigned char buf[REPORT_LEN]) {
-  return hid_send_feature_report(dev, buf, REPORT_LEN);
-}
 
 static int channel_present(const unsigned char buf[REPORT_LEN], int ch) {
   return buf[1 + ch * ENTRY_SIZE + 15] > 0;
 }
 
-// Live control requires a mode TRANSITION: writing the table alone does
-// nothing while an effect is running. Verified on hardware: switching to
-// direct mode (0x25) first, then to the target mode applies it live.
-// static/off are hardware-verified; other modes follow the classic enum.
-static void apply_table(unsigned char buf[REPORT_LEN]) {
-  unsigned char tmp[REPORT_LEN];
-  memcpy(tmp, buf, REPORT_LEN);
-  for (int k = 0; k < 18; k++) tmp[1 + k * ENTRY_SIZE] = 0x25;
-  hid_send_feature_report(dev, tmp, REPORT_LEN);
-  usleep(100000);
-  hid_send_feature_report(dev, buf, REPORT_LEN);
+// Live application (reverse engineered from an MSI Center USBPcap capture,
+// docs/mystic.pcapng): a 0x50 table write only takes effect when it is
+// immediately followed by feature report 0x21 — an 8-byte envelope plus a
+// copy of the 290-byte table:
+//   21 09 50 03 00 00 22 01 | <0x50 table>
+// (0x0122 = 290, the embedded table length, little-endian.)
+static int apply_table(unsigned char buf[REPORT_LEN]) {
+  unsigned char ap[298];
+  ap[0] = 0x21; ap[1] = 0x09; ap[2] = 0x50; ap[3] = 0x03;
+  ap[4] = 0x00; ap[5] = 0x00; ap[6] = 0x22; ap[7] = 0x01;
+  memcpy(ap + 8, buf, REPORT_LEN);
+  int n = hid_send_feature_report(dev, ap, sizeof ap);
+  usleep(50000);
+  return n;
 }
 
-static void set_channels_mode(unsigned char buf[REPORT_LEN], int mode, long color) {
-  for (int ch = 0; ch < MAX_CHANNELS; ch++) {
-    unsigned char *e = buf + 1 + ch * ENTRY_SIZE;
-    e[0] = mode;
-    e[1] = (color >> 16) & 0xff; e[2] = (color >> 8) & 0xff; e[3] = color & 0xff;
-    memset(e + 4, 0, 6);
-  }
-}
-
+// Set every 16-byte slot in report 0x50 to one mode+color (used by tests
+// and restore tooling; the CLI `set` patches only real channels).
 static void print_channels(const unsigned char buf[REPORT_LEN]) {
   for (int ch = 0; ch < MAX_CHANNELS; ch++) {
     const unsigned char *e = buf + 1 + ch * ENTRY_SIZE;
